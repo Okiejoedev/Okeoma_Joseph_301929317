@@ -1,0 +1,295 @@
+SET
+Pager usage is off.
+psql:02_partitioning.sql:8: NOTICE:  table "txn_part" does not exist, skipping
+DROP TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+INSERT 0 1209721
+CREATE INDEX
+ANALYZE
+--- P1. Rows per fragment (partition)
+  partition  |  rows  | size  
+-------------+--------+-------
+ txn_2026_05 | 203818 | 22 MB
+ txn_2026_06 | 196980 | 21 MB
+ txn_2026_07 | 203661 | 22 MB
+ txn_2026_08 | 204221 | 22 MB
+ txn_2026_09 | 196995 | 21 MB
+ txn_2026_10 | 204046 | 22 MB
+(6 rows)
+
+--- P2. Partition PRUNING: October report touches only txn_2026_10
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate (actual rows=1 loops=1)
+   ->  Gather (actual rows=2 loops=1)
+         Workers Planned: 1
+         Workers Launched: 1
+         ->  Partial Aggregate (actual rows=1 loops=2)
+               ->  Parallel Seq Scan on txn_2026_10 txn_part (actual rows=96977 loops=2)
+                     Filter: ((created_at >= '2026-10-01 00:00:00+00'::timestamp with time zone) AND (created_at < '2026-11-01 00:00:00+00'::timestamp with time zone) AND ((status)::text = 'SUCCESS'::text))
+                     Rows Removed by Filter: 5046
+ Planning Time: 0.244 ms
+ Execution Time: 37.022 ms
+(10 rows)
+
+--- P3. Same report on the unpartitioned 1.2M-row table (uses the BRIN index from Portfolio 2)
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate (actual rows=1 loops=1)
+   ->  Gather (actual rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Partial Aggregate (actual rows=1 loops=3)
+               ->  Parallel Bitmap Heap Scan on pos_transaction (actual rows=64651 loops=3)
+                     Recheck Cond: ((created_at >= '2026-10-01 00:00:00+00'::timestamp with time zone) AND (created_at < '2026-11-01 00:00:00+00'::timestamp with time zone))
+                     Rows Removed by Index Recheck: 9036
+                     Filter: ((status)::text = 'SUCCESS'::text)
+                     Rows Removed by Filter: 3364
+                     Heap Blocks: lossy=3750
+                     ->  Bitmap Index Scan on idx_txn_created_brin (actual rows=68710 loops=1)
+                           Index Cond: ((created_at >= '2026-10-01 00:00:00+00'::timestamp with time zone) AND (created_at < '2026-11-01 00:00:00+00'::timestamp with time zone))
+ Planning Time: 0.127 ms
+ Execution Time: 54.680 ms
+(15 rows)
+
+--- P4. Data retention: archive May instantly (DETACH) vs row-by-row DELETE
+SELECT 1209721
+CREATE INDEX
+DELETE May rows from the unpartitioned copy:
+Timing is on.
+DELETE 203818
+Time: 59.296 ms
+Timing is off.
+DETACH the May partition (becomes a standalone archive table):
+Timing is on.
+ALTER TABLE
+Time: 1.446 ms
+Timing is off.
+ALTER TABLE
+    archive_table    | count  
+---------------------+--------
+ archive_txn_2026_05 | 203818
+(1 row)
+
+ rows_left_in_txn_part 
+-----------------------
+               1005903
+(1 row)
+
+--- P5. Same idea across sites: list-partition by region (horizontal fragmentation by location)
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+INSERT 0 3001
+    fragment    | count 
+----------------+-------
+ agent_island   |   391
+ agent_mainland |  2610
+(2 rows)
+
+In a distributed deployment each fragment would live at the site that uses it most (see MongoDB zone sharding).
+DROP TABLE
+=== P5 PostgreSQL streaming replication ===
+
+======================================================================
+R0. Create the hot standby with pg_basebackup (-R writes primary_conninfo)
+======================================================================
+base backup of 1.2G took 22 s
+primary_conninfo = 'user=postgres passfile=''/var/lib/postgresql/.pgpass'' channel_binding=prefer host=localhost port=54
+replica in recovery (standby)? t
+
+======================================================================
+R1. Primary view of its standbys (pg_stat_replication)
+======================================================================
+ application_name | client_addr |   state   | sync_state |  sent_lsn  | replay_lsn 
+------------------+-------------+-----------+------------+------------+------------
+ replica1         | ::1         | streaming | async      | 1/1B000000 | 1/1B000000
+(1 row)
+
+
+======================================================================
+R2. Write on primary, read on replica (read scaling) + measured lag
+======================================================================
+15:10:03.311 primary committed
+15:10:03.559 replica sees: Repl Test
+ application_name |   write_lag    |    flush_lag    |   replay_lag    | bytes_behind 
+------------------+----------------+-----------------+-----------------+--------------
+ replica1         | 00:00:00.21697 | 00:00:00.221462 | 00:00:00.223458 |            0
+(1 row)
+
+
+======================================================================
+R3. Bulk write: 50,000 rows on primary, then compare row counts
+======================================================================
+primary rows: 50000  |  replica rows: 50000
+
+======================================================================
+R4. The standby is read-only
+======================================================================
+ERROR:  cannot execute UPDATE in a read-only transaction
+
+======================================================================
+R5. Analytics offloaded to the replica (same answer, primary not loaded)
+======================================================================
+ oct_success |    volume     
+-------------+---------------
+      193954 | 4498560092.50
+(1 row)
+
+
+======================================================================
+R6. SYNCHRONOUS replication: commit waits for the standby (consistency)
+======================================================================
+ application_name | sync_state 
+------------------+------------
+ replica1         | sync
+(1 row)
+
+Time: 2.834 ms
+
+======================================================================
+R7. Standby goes DOWN while sync replication is required -> primary cannot confirm commits
+======================================================================
+15:10:06.430 replica1 stopped
+15:10:06.431 session A attempts a write...
+15:10:10.434 after 4 s session A is still waiting:
+  pid  | state  | wait_event_type | wait_event |   waiting_for   
+-------+--------+-----------------+------------+-----------------
+ 21836 | active | IPC             | SyncRep    | 00:00:04.001628
+(1 row)
+
+15:10:10.469 operator cancels the waiting backend (statement_timeout does NOT interrupt a SyncRep wait)
+   session A: WARNING:  canceling wait for synchronous replication due to user request
+   session A: DETAIL:  The transaction has already committed locally, but might not have been replicated to the standby.
+15:10:10.504 -> under CAP, synchronous mode chose CONSISTENCY: the write is not acknowledged (unavailable).
+
+======================================================================
+R8. Switch to ASYNCHRONOUS commit -> primary available again (risk: data loss window)
+======================================================================
+Time: 1.044 ms
+standby restarted; it catches up from WAL. replica rows with id<0: -1,-2,-3
+
+======================================================================
+R9. FAILOVER: primary crashes, replica is promoted
+======================================================================
+15:10:14.988 crashing primary (pg_ctl stop -m immediate)
+/workspaces/Okeoma_Joseph_301929317/portfolio-5-distributed-cloud/01_pg_replication.sh: line 88: bc: command not found
+15:10:15.327 replica promoted in 0.00 s; in recovery now? f
+ id |           payload           
+----+-----------------------------
+ -1 | sync commit with standby UP
+ -2 | written while standby down
+ -3 | async commit, standby down
+ -4 | last write before crash
+ -5 | first write on NEW primary
+(5 rows)
+
+No committed row was lost: -4 (written just before the crash) is present on the new primary.
+
+======================================================================
+R10. Clean-up for the rest of the portfolio: original primary restarted, demo standby retired
+======================================================================
+original primary back online: in recovery? f
+(In production the old primary would be re-attached as a standby of the new one with pg_rewind.)
+=== P5 MongoDB replica set ===
+
+======================================================================
+S1. Start 3 mongod processes and initiate replica set rsAgent
+======================================================================
+  [t+ 16.549s] member states: {'27021': 'PRIMARY', '27022': 'SECONDARY', '27023': 'SECONDARY'}
+
+======================================================================
+S2. Write with writeConcern {w: 'majority'} and read it back from a SECONDARY
+======================================================================
+  [t+ 17.201s] inserted 20000 receipts with w:majority in 0.48s
+  [t+ 18.211s] count read from a secondary: 20000
+  [t+ 18.211s] oplog entries on primary: 57
+
+======================================================================
+S3. Multi-document ACID transaction (wallet transfer) - commit and abort
+======================================================================
+  [t+ 18.239s] commit : {'W-ADA': '45000.00', 'W-BAYO': '25000.00'}
+  [t+ 18.240s] abort  : simulated failure after the debit -> transaction aborted
+  [t+ 18.241s] after  : {'W-ADA': '45000.00', 'W-BAYO': '25000.00'}  (the debit was rolled back)
+
+======================================================================
+S4. FAILOVER under load: kill the primary while a POS simulator writes every 50 ms
+======================================================================
+  [t+ 20.242s] current primary is :27021 -> kill -9
+  [t+ 30.557s] new primary elected: :27023 after 10.31s
+  [t+ 33.577s] POS writes attempted 96: ok 96, errors 0; longest single write 10.14s (retryWrites held it until the new primary)
+  [t+ 33.578s] documents stored: 96 (no acknowledged write lost)
+
+======================================================================
+S5. Old primary rejoins as a SECONDARY and catches up
+======================================================================
+  [t+ 39.583s] member states: {'27021': 'SECONDARY', '27022': 'SECONDARY', '27023': 'PRIMARY'}
+
+======================================================================
+S6. Lose the MAJORITY: stop 2 of 3 nodes -> no primary (Consistency over Availability)
+======================================================================
+  [t+ 39.612s] killed :27022 and :27023; waiting for the survivor to step down...
+  [t+ 51.616s] survivor :27021 state = SECONDARY (cannot accept writes)
+  [t+ 51.617s] write rejected: NotPrimaryError: not primary
+  [t+ 51.627s] stale read still served (secondaryPreferred): 20000 receipts
+
+======================================================================
+Shutdown
+======================================================================
+  [t+ 66.763s] all replica-set members stopped
+=== P5 MongoDB sharding ===
+
+======================================================================
+Z1. Start config server, two shard replica sets and the mongos router
+======================================================================
+shards: ['shMainland @ shMainland/127.0.0.1:27031', 'shIsland @ shIsland/127.0.0.1:27032']
+
+======================================================================
+Z2. Zones: Lagos Island LGAs -> shIsland, the rest -> shMainland
+======================================================================
+  MAINLAND  [MinKey, EPE)
+  ISLAND    [EPE, IFA)
+  MAINLAND  [IFA, LIS)
+  ISLAND    [LIS, LMA)
+  MAINLAND  [LMA, MaxKey)
+
+======================================================================
+Z3. Shard the collection on {agent.lga: 1, _id: 1} and load 204,046 October receipts
+======================================================================
+  inserted 204046 documents through mongos in 5.8s
+
+======================================================================
+Z4. Where did the data go? (counted directly on each shard)
+======================================================================
+  shMainland   174409 docs | LGAs: AGE, AJE, ALI, AMU, APA, BAD, IFA, IKD, IKJ, KOS, LMA, MUS, OJO, OSH, SHO, SUR
+  shIsland      29637 docs | LGAs: EPE, ETI, IBL, LIS
+  chunks per shard: {'shMainland': 3, 'shIsland': 2}
+
+======================================================================
+Z5. Query routing: TARGETED vs SCATTER-GATHER (explain through mongos)
+======================================================================
+  Failed txns in Eti-Osa (filter includes shard-key prefix):
+     stage=SINGLE_SHARD  shards=['shIsland']  nReturned=483  time=17ms
+  One receipt with full shard key (IKJ + R261001000634479):
+     stage=SINGLE_SHARD  shards=['shMainland']  nReturned=1  time=0ms
+  Customer 1234's receipts (no shard key -> must ask every shard):
+     stage=SHARD_MERGE  shards=['shIsland', 'shMainland']  nReturned=6  time=111ms
+
+======================================================================
+Z6. Cluster-wide aggregation is split across shards and merged by mongos
+======================================================================
+  mergeType: mongos | shards involved: ['shIsland', 'shMainland']
+  split pipeline -> shardsPart: ['$match', '$group'] mergerPart: ['$mergeCursors', '$group']
+
+======================================================================
+Shutdown
+======================================================================
+  cluster stopped
