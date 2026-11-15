@@ -1,0 +1,39 @@
+BEFORE (only PK/UNIQUE indexes)
+  before Q1      126.67 ms   Seq Scan (pos_transaction); Index Scan (agent_pkey)
+  before Q2      119.94 ms   Seq Scan (pos_transaction)
+  before Q3      120.70 ms   Seq Scan (pos_transaction)
+  before Q4      116.55 ms   Seq Scan (pos_transaction)
+  before Q5      180.86 ms   Seq Scan (ledger_entry); Index Scan (pos_transaction_pkey)
+  before Q6      328.75 ms   Seq Scan (ledger_entry); Seq Scan (dispute); Index Scan (pos_transaction_pkey)
+  before Q7      208.01 ms   Seq Scan (pos_transaction); Seq Scan (agent); Seq Scan (lga)
+  before Q8      366.90 ms   Seq Scan (commission); Seq Scan (pos_transaction); Seq Scan (agent)
+  before Q9      200.46 ms   Subquery Scan; Seq Scan (pos_transaction)
+  before insert 50k rows: 1335 ms
+Indexes built in 15.5s
+AFTER
+  after  Q1        0.05 ms   Index Scan (idx_txn_customer_time); Index Scan (agent_pkey)
+  after  Q2        0.03 ms   Index Only Scan (idx_txn_agent_time)
+  after  Q3        0.02 ms   Index Only Scan (idx_txn_agent_time)
+  after  Q4        0.28 ms   Index Scan (idx_txn_failed_time)
+  after  Q5        0.53 ms   Index Scan (idx_ledger_wallet_time); Index Scan (pos_transaction_pkey)
+  after  Q6        4.78 ms   Seq Scan (dispute); Index Scan (pos_transaction_pkey); Index Scan (idx_ledger_txn)
+  after  Q7       80.40 ms   Index Scan (agent_pkey); Index Scan (lga_pkey); Index Only Scan (idx_txn_agent_time)
+  after  Q8      288.90 ms   Seq Scan (commission); Bitmap Heap Scan (pos_transaction); Bitmap Index Scan (idx_txn_created_brin); Seq Scan (agent)
+  after  Q9       55.08 ms   Subquery Scan; Index Only Scan (idx_txn_cashout_cust_time)
+  after  insert 50k rows: 2034 ms
+Index sizes after build
+  idx_ledger_wallet_time       96 MB
+  idx_txn_agent_time           76 MB
+  idx_ledger_txn               52 MB
+  idx_txn_customer_time        36 MB
+  idx_txn_cashout_cust_time    15 MB
+  idx_txn_failed_time          1120 kB
+  idx_txn_created_brin         24 kB
+
+Total index build time: 15.5 s
+
+Insert 50,000 POS transactions (rolled back):
+  before P2 indexes: 1335 ms
+  after  P2 indexes: 2034 ms
+  overhead: 1.52x
+
