@@ -1,0 +1,287 @@
+agents: 3001, transactions: 204046, heartbeats: 33600
+
+======================================================================
+M1. One read returns an agent with its terminals, LGA and super agent (no JOIN)
+======================================================================
+{
+  _id: 'AGL-000057',
+  business_name: 'Success Enterprises',
+  tier: 'C',
+  lga: {
+    code: 'APA',
+    name: 'Apapa'
+  },
+  super_agent: {
+    id: 28,
+    name: 'Super Agent B2 Ltd',
+    share: Decimal128('0.350')
+  },
+  terminals: [
+    {
+      terminal_id: '2AGL0057',
+      serial_no: 'SN0007000057',
+      model: 'Horizon K11',
+      status: 'ACTIVE'
+    }
+  ]
+}
+
+======================================================================
+M2. Polymorphic documents: one collection, a different shape per transaction type
+======================================================================
+{
+  _id: 'R261001000016557',
+  type: 'CASH_OUT',
+  amount: Decimal128('30000.00'),
+  fee: Decimal128('450.00'),
+  card: {
+    scheme: 'Verve',
+    pan_masked: '5061******4469',
+    stan: '624469',
+    auth_code: '419742'
+  }
+}
+{
+  _id: 'R261001001010610',
+  type: 'TRANSFER',
+  amount: Decimal128('78200.00'),
+  fee: Decimal128('150.00'),
+  beneficiary: {
+    bank: 'First Bank',
+    account_masked: '******3314',
+    nip_session_id: '077903872884620887379624083314'
+  }
+}
+{
+  _id: 'R261001000541159',
+  type: 'BILL_PAY',
+  amount: Decimal128('38400.00'),
+  fee: Decimal128('100.00'),
+  bill: {
+    biller: 'StarTimes',
+    category: 'cable_tv',
+    smartcard_no: '8533643149',
+    bouquet: 'Basic'
+  }
+}
+{
+  _id: 'R261001000057949',
+  type: 'AIRTIME',
+  amount: Decimal128('1000.00'),
+  fee: Decimal128('0.00'),
+  topup: {
+    network: 'Airtel',
+    msisdn: '08037214349',
+    product: 'airtime'
+  }
+}
+
+======================================================================
+M3. Schema validation ($jsonSchema): invalid receipt is rejected
+======================================================================
+REJECTED: Document failed validation
+   - property 'type': "value was not found in enum"
+   - property 'amount': "comparison failed"
+
+======================================================================
+M4. Index tuning: customer mini-statement, BEFORE index (COLLSCAN)
+======================================================================
+{
+  plan: 'SORT <- COLLSCAN',
+  nReturned: 6,
+  totalKeysExamined: 0,
+  totalDocsExamined: 204046,
+  executionTimeMillis: 77
+}
+
+======================================================================
+M4b. AFTER compound index {customer.id: 1, created_at: -1} (IXSCAN, no in-memory SORT)
+======================================================================
+{
+  plan: 'LIMIT <- FETCH <- IXSCAN',
+  nReturned: 6,
+  totalKeysExamined: 6,
+  totalDocsExamined: 6,
+  executionTimeMillis: 1
+}
+
+======================================================================
+M5. Aggregation: October SUCCESS volume by LGA (agent LGA is embedded -> no $lookup)
+======================================================================
+[
+  {
+    _id: 'ALI',
+    txns: 32342,
+    volume: Decimal128('741149390.00')
+  },
+  {
+    _id: 'IKJ',
+    txns: 17743,
+    volume: Decimal128('421509672.50')
+  },
+  {
+    _id: 'OSH',
+    txns: 12710,
+    volume: Decimal128('295280872.50')
+  },
+  {
+    _id: 'KOS',
+    txns: 12039,
+    volume: Decimal128('281937860.00')
+  },
+  {
+    _id: 'ETI',
+    txns: 11472,
+    volume: Decimal128('268275025.00')
+  }
+]
+
+======================================================================
+M6. Aggregation on type-specific fields: electricity units sold per biller
+======================================================================
+[
+  {
+    _id: 'Eko Electricity',
+    payments: 3065,
+    naira: Decimal128('65612900.00'),
+    kwh: 313187.2
+  },
+  {
+    _id: 'Ikeja Electric',
+    payments: 3051,
+    naira: Decimal128('63538700.00'),
+    kwh: 303284.6
+  }
+]
+
+======================================================================
+M7. $lookup when we DO need the full parent: top 3 agents by October fees, with super agent
+======================================================================
+[
+  {
+    _id: 'AGL-000001',
+    fees: Decimal128('417850.00'),
+    txns: 2304,
+    business: 'Hope Ventures',
+    super_agent: 'Super Agent O Ltd'
+  },
+  {
+    _id: 'AGL-000002',
+    fees: Decimal128('200550.00'),
+    txns: 1074,
+    business: 'Kings POS',
+    super_agent: 'Super Agent E Ltd'
+  },
+  {
+    _id: 'AGL-000003',
+    fees: Decimal128('152145.00'),
+    txns: 890,
+    business: 'Victory Ventures',
+    super_agent: 'Super Agent B2 Ltd'
+  }
+]
+
+======================================================================
+M8. Time-series collection: hourly average signal & min battery for terminal 2AGL0007
+======================================================================
+[
+  {
+    _id: ISODate('2026-10-31T07:00:00.000Z'),
+    avg_signal_dbm: -85.83333333333333,
+    min_battery: 93
+  },
+  {
+    _id: ISODate('2026-10-31T08:00:00.000Z'),
+    avg_signal_dbm: -86.5,
+    min_battery: 84
+  },
+  {
+    _id: ISODate('2026-10-31T09:00:00.000Z'),
+    avg_signal_dbm: -79.75,
+    min_battery: 80
+  },
+  {
+    _id: ISODate('2026-10-31T10:00:00.000Z'),
+    avg_signal_dbm: -82,
+    min_battery: 72
+  }
+]
+time-series buckets: 200 for 33600 measurements
+
+======================================================================
+M9. TTL index: OTP documents expire automatically
+======================================================================
+OTP inserted with created_at 125s ago; TTL = 120s; docs now: 1
+indexes: [["_id_",null],["created_at_1",120]]
+(the TTL monitor runs every 60s; see evidence of deletion at the end of this file)
+
+======================================================================
+M10. Storage comparison
+======================================================================
+transactions docs: 204046 | avg doc size: 405 bytes | data size: 79.0 MB | storage (compressed): 26.8 MB
+Redis 7.0.15
+
+======================================================================
+K1. Idempotency key: SET idem:<txn_ref> NX EX 86400
+======================================================================
+  attempt 1: SET NX -> True  ->  process the cash-out
+  attempt 2: SET NX -> None  ->  duplicate retry, return stored result, do NOT debit again
+  attempt 3: SET NX -> None  ->  duplicate retry, return stored result, do NOT debit again
+  TTL idem:R261104000000777 = 86400 seconds
+
+======================================================================
+K2. Atomic check-and-increment of an agent's daily cash-out total (Lua)
+======================================================================
+  20 concurrent cash-outs of N10,000 against a N100,000 limit
+  approved: 10  rejected: 10  final total: N100,000
+  key expires at midnight: TTL 31842 s
+  (Redis runs each Lua script atomically on its single command thread, so there is no write skew
+   without locks. Compare Portfolio 3 D10, where PostgreSQL needed SERIALIZABLE or a row lock.)
+
+======================================================================
+K3. Leaderboard: sorted set of October agent volume (loaded from PostgreSQL)
+======================================================================
+  #1  AGL-000001  N56,513,740
+  #2  AGL-000002  N23,697,930
+  #3  AGL-000003  N19,970,170
+  #4  AGL-000004  N15,528,950
+  #5  AGL-000006  N15,417,200
+  ZREVRANGE top 5 over 3000 agents took 0.27 ms
+  live update: ZINCRBY AGL-000057 +50,000 -> rank #67
+
+======================================================================
+K4. Terminal presence with TTL (heartbeat every 30 s, key lives 2 s in this demo)
+======================================================================
+  online terminals: ['online:2AGL0057', 'online:2AGL0058']
+  after 2.4 s     : ['online:2AGL0057'] <- 2AGL0058 expired automatically
+
+======================================================================
+K5. Cache-aside: agent profile in front of PostgreSQL
+======================================================================
+  MISS   6.330 ms  {'code': 'AGL-000057', 'name': 'Success Enterprises', 'status': 'ACTIVE', 'limit': '300000.00', 'lga': 'Apapa'}
+  HIT    0.140 ms  {'code': 'AGL-000057', 'name': 'Success Enterprises', 'status': 'ACTIVE', 'limit': '300000.00', 'lga': 'Apapa'}
+  HIT    0.100 ms  {'code': 'AGL-000057', 'name': 'Success Enterprises', 'status': 'ACTIVE', 'limit': '300000.00', 'lga': 'Apapa'}
+  invalidate on change: DEL agent:AGL-000057 -> 1
+
+======================================================================
+K6. Wrong-PIN limiter: 3 attempts per card per 15 minutes
+======================================================================
+  wrong PIN #1: counter=1 -> allow retry
+  wrong PIN #2: counter=2 -> allow retry
+  wrong PIN #3: counter=3 -> BLOCK card for 15 min
+  wrong PIN #4: counter=4 -> BLOCK card for 15 min
+  wrong PIN #5: counter=5 -> BLOCK card for 15 min
+
+======================================================================
+K7. Redis Stream: completed transactions fan out to independent consumer groups
+======================================================================
+  sms group received 3 events; fraud group received 3 events
+  fraud-worker-1 1794755360612-0 R261104000000101 N20,000 -> ok
+  fraud-worker-1 1794755360612-1 R261104000000102 N95,000 -> REVIEW (amount >= 90,000)
+  fraud-worker-1 1794755360612-2 R261104000000103 N3,000 -> ok
+  pending (unacknowledged) for sms group: 3
+
+======================================================================
+Memory
+======================================================================
+  used_memory_human: 1.90M | keys: 6
