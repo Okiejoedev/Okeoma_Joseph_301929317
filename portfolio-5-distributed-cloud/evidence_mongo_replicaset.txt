@@ -1,0 +1,45 @@
+
+======================================================================
+S1. Start 3 mongod processes and initiate replica set rsAgent
+======================================================================
+  [t+ 16.812s] member states: {'27021': 'PRIMARY', '27022': 'SECONDARY', '27023': 'SECONDARY'}
+
+======================================================================
+S2. Write with writeConcern {w: 'majority'} and read it back from a SECONDARY
+======================================================================
+  [t+ 17.463s] inserted 20000 receipts with w:majority in 0.50s
+  [t+ 18.476s] count read from a secondary: 20000
+  [t+ 18.477s] oplog entries on primary: 58
+
+======================================================================
+S3. Multi-document ACID transaction (wallet transfer) - commit and abort
+======================================================================
+  [t+ 18.512s] commit : {'W-ADA': '45000.00', 'W-BAYO': '25000.00'}
+  [t+ 18.514s] abort  : simulated failure after the debit -> transaction aborted
+  [t+ 18.516s] after  : {'W-ADA': '45000.00', 'W-BAYO': '25000.00'}  (the debit was rolled back)
+
+======================================================================
+S4. FAILOVER under load: kill the primary while a POS simulator writes every 50 ms
+======================================================================
+  [t+ 20.518s] current primary is :27021 -> kill -9
+  [t+ 30.897s] new primary elected: :27023 after 10.38s
+  [t+ 33.940s] POS writes attempted 95: ok 95, errors 0; longest single write 10.26s (retryWrites held it until the new primary)
+  [t+ 33.941s] documents stored: 95 (no acknowledged write lost)
+
+======================================================================
+S5. Old primary rejoins as a SECONDARY and catches up
+======================================================================
+  [t+ 39.948s] member states: {'27021': 'SECONDARY', '27022': 'SECONDARY', '27023': 'PRIMARY'}
+
+======================================================================
+S6. Lose the MAJORITY: stop 2 of 3 nodes -> no primary (Consistency over Availability)
+======================================================================
+  [t+ 39.979s] killed :27022 and :27023; waiting for the survivor to step down...
+  [t+ 51.984s] survivor :27021 state = SECONDARY (cannot accept writes)
+  [t+ 51.984s] write rejected: NotPrimaryError: not primary
+  [t+ 51.994s] stale read still served (secondaryPreferred): 20000 receipts
+
+======================================================================
+Shutdown
+======================================================================
+  [t+ 67.065s] all replica-set members stopped

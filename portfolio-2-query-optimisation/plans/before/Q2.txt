@@ -1,0 +1,29 @@
+-- Q2: Agent end-of-day summary for one agent and one day (POS terminal report)
+-- phase: before
+
+SELECT type_code, status, count(*) AS txns, sum(amount) AS volume, sum(fee) AS fees
+FROM pos_transaction
+WHERE agent_id = 57
+  AND created_at >= '2026-10-15' AND created_at < '2026-10-16'
+GROUP BY type_code, status
+ORDER BY type_code, status;
+
+GroupAggregate  (cost=43054.74..43054.93 rows=6 width=87) (actual time=128.384..133.956 rows=4 loops=1)
+  Group Key: type_code, status
+  Buffers: shared hit=26679 read=6560
+  ->  Sort  (cost=43054.74..43054.76 rows=7 width=24) (actual time=128.364..133.928 rows=7 loops=1)
+        Sort Key: type_code, status
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=26679 read=6560
+        ->  Gather  (cost=1000.00..43054.64 rows=7 width=24) (actual time=13.393..133.897 rows=7 loops=1)
+              Workers Planned: 2
+              Workers Launched: 2
+              Buffers: shared hit=26679 read=6560
+              ->  Parallel Seq Scan on pos_transaction  (cost=0.00..42053.94 rows=3 width=24) (actual time=45.179..120.193 rows=2 loops=3)
+                    Filter: ((created_at >= '2026-10-15 00:00:00+01'::timestamp with time zone) AND (created_at < '2026-10-16 00:00:00+01'::timestamp with time zone) AND (agent_id = 57))
+                    Rows Removed by Filter: 403238
+                    Buffers: shared hit=26679 read=6560
+Planning:
+  Buffers: shared hit=6
+Planning Time: 0.179 ms
+Execution Time: 134.003 ms

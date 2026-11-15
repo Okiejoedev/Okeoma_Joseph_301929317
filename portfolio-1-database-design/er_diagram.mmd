@@ -1,0 +1,110 @@
+erDiagram
+    LGA ||--o{ AGENT : "hosts"
+    SUPER_AGENT ||--o{ AGENT : "supervises"
+    AGENT ||--o{ TERMINAL : "is assigned"
+    AGENT ||--|| WALLET : "owns (float)"
+    CUSTOMER ||--o| WALLET : "owns"
+    TERMINAL ||--o{ POS_TRANSACTION : "captures"
+    AGENT ||--o{ POS_TRANSACTION : "performs"
+    CUSTOMER |o--o{ POS_TRANSACTION : "initiates"
+    TXN_TYPE ||--o{ POS_TRANSACTION : "classifies"
+    TXN_TYPE ||--o{ FEE_BAND : "priced by"
+    POS_TRANSACTION ||--|{ LEDGER_ENTRY : "posts"
+    WALLET ||--o{ LEDGER_ENTRY : "debited / credited"
+    POS_TRANSACTION |o--o| POS_TRANSACTION : "reverses"
+    POS_TRANSACTION ||--o| COMMISSION : "earns"
+    POS_TRANSACTION ||--o{ DISPUTE : "disputed in"
+    CUSTOMER ||--o{ DISPUTE : "raises"
+
+    LGA {
+        char lga_code PK
+        varchar lga_name UK
+        varchar state
+    }
+    SUPER_AGENT {
+        int super_agent_id PK
+        varchar name UK
+        varchar licence_no UK
+        numeric commission_share
+    }
+    AGENT {
+        int agent_id PK
+        varchar agent_code UK
+        int super_agent_id FK
+        char lga_code FK
+        varchar business_name
+        varchar phone UK
+        char tier
+        varchar status
+        numeric daily_cashout_limit
+    }
+    TERMINAL {
+        varchar terminal_id PK
+        varchar serial_no UK
+        int agent_id FK
+        varchar model
+        varchar status
+    }
+    CUSTOMER {
+        int customer_id PK
+        varchar phone UK
+        varchar first_name
+        varchar last_name
+        char bvn_hash UK
+        smallint kyc_tier
+    }
+    WALLET {
+        bigint wallet_id PK
+        varchar owner_type
+        int agent_id FK
+        int customer_id FK
+        varchar system_code UK
+        numeric balance
+        int version
+    }
+    TXN_TYPE {
+        varchar type_code PK
+        varchar description
+        boolean moves_cash
+    }
+    FEE_BAND {
+        int band_id PK
+        varchar type_code FK
+        numeric min_amount
+        numeric max_amount
+        numeric flat_fee
+        numeric pct_fee
+    }
+    POS_TRANSACTION {
+        bigint txn_id PK
+        varchar txn_ref UK
+        varchar terminal_id FK
+        int agent_id FK
+        int customer_id FK
+        varchar type_code FK
+        numeric amount
+        numeric fee
+        varchar status
+        timestamptz created_at
+        bigint reversal_of FK
+    }
+    LEDGER_ENTRY {
+        bigint entry_id PK
+        bigint txn_id FK
+        bigint wallet_id FK
+        char direction
+        numeric amount
+    }
+    COMMISSION {
+        bigint txn_id PK
+        numeric agent_amount
+        numeric super_agent_amount
+    }
+    DISPUTE {
+        int dispute_id PK
+        bigint txn_id FK
+        int customer_id FK
+        varchar reason
+        varchar status
+        timestamptz opened_at
+    }

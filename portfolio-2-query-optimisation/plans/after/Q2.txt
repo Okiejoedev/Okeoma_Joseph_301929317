@@ -1,0 +1,25 @@
+-- Q2: Agent end-of-day summary for one agent and one day (POS terminal report)
+-- phase: after
+
+SELECT type_code, status, count(*) AS txns, sum(amount) AS volume, sum(fee) AS fees
+FROM pos_transaction
+WHERE agent_id = 57
+  AND created_at >= '2026-10-15' AND created_at < '2026-10-16'
+GROUP BY type_code, status
+ORDER BY type_code, status;
+
+GroupAggregate  (cost=4.77..5.03 rows=8 width=87) (actual time=0.028..0.036 rows=4 loops=1)
+  Group Key: type_code, status
+  Buffers: shared hit=4
+  ->  Sort  (cost=4.77..4.80 rows=9 width=24) (actual time=0.021..0.022 rows=7 loops=1)
+        Sort Key: type_code, status
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=4
+        ->  Index Only Scan using idx_txn_agent_time on pos_transaction  (cost=0.43..4.63 rows=9 width=24) (actual time=0.010..0.012 rows=7 loops=1)
+              Index Cond: ((agent_id = 57) AND (created_at >= '2026-10-15 00:00:00+01'::timestamp with time zone) AND (created_at < '2026-10-16 00:00:00+01'::timestamp with time zone))
+              Heap Fetches: 0
+              Buffers: shared hit=4
+Planning:
+  Buffers: shared hit=7
+Planning Time: 0.121 ms
+Execution Time: 0.060 ms

@@ -1,0 +1,7 @@
+[3965] ERROR:  deadlock detected
+[3965] DETAIL:  Process 3965 waits for ShareLock on transaction 1023; blocked by process 3964.
+	Process 3964 waits for ShareLock on transaction 1022; blocked by process 3965.
+	Process 3965: SELECT wallet_transfer($1::varchar,$2::bigint,$3::bigint,$4::numeric,$5::boolean,$6::numeric)
+	Process 3964: SELECT wallet_transfer($1::varchar,$2::bigint,$3::bigint,$4::numeric,$5::boolean,$6::numeric)
+[3965] HINT:  See server log for query details.
+[3965] CONTEXT:  while locking tuple (0,80) in relation "wallet"

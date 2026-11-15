@@ -1,0 +1,5 @@
+psycopg[binary]>=3.2
+pymongo>=4.10
+redis>=5.0
+matplotlib>=3.9
+playwright>=1.45

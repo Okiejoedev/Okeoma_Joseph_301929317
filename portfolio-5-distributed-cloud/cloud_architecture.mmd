@@ -1,0 +1,31 @@
+flowchart TB
+    subgraph POS["Edge: 3,000+ POS terminals"]
+        T["POS app + local SQLite queue<br/>(store-and-forward when offline)"]
+    end
+    T -->|"TLS, idempotent txn_ref"| LB["API gateway / load balancer<br/>(Lagos)"]
+    subgraph LAG1["Lagos site A (in-country, CBN 2027 rule)"]
+        API1["Stateless API pods"]
+        PG1[("PostgreSQL PRIMARY<br/>ledger + wallets")]
+        M1[("MongoDB member 1")]
+        R1[("Redis primary")]
+    end
+    subgraph LAG2["Lagos site B (second facility / zone)"]
+        API2["Stateless API pods"]
+        PG2[("PostgreSQL SYNC standby")]
+        M2[("MongoDB member 2")]
+        R2[("Redis replica + Sentinel")]
+    end
+    subgraph ABJ["Abuja DR site"]
+        PG3[("PostgreSQL ASYNC standby<br/>+ reporting reads")]
+        M3[("MongoDB member 3")]
+        BK[("WAL archive + backups<br/>encrypted, in Nigeria")]
+    end
+    LB --> API1 & API2
+    API1 & API2 --> PG1
+    API1 & API2 --> R1
+    API1 & API2 --> M1
+    PG1 -- "sync: ANY 1 (siteB, abuja)" --> PG2
+    PG1 -. "async WAL" .-> PG3
+    PG1 -. "WAL archiving (PITR)" .-> BK
+    M1 <--> M2 <--> M3
+    R1 -. replicate .-> R2

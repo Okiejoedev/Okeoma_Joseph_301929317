@@ -1,0 +1,66 @@
+Redis 7.0.15
+
+======================================================================
+K1. Idempotency key: SET idem:<txn_ref> NX EX 86400
+======================================================================
+  attempt 1: SET NX -> True  ->  process the cash-out
+  attempt 2: SET NX -> None  ->  duplicate retry, return stored result, do NOT debit again
+  attempt 3: SET NX -> None  ->  duplicate retry, return stored result, do NOT debit again
+  TTL idem:R261104000000777 = 86400 seconds
+
+======================================================================
+K2. Atomic check-and-increment of an agent's daily cash-out total (Lua)
+======================================================================
+  20 concurrent cash-outs of N10,000 against a N100,000 limit
+  approved: 10  rejected: 10  final total: N100,000
+  key expires at midnight: TTL 50389 s
+  (Redis runs each Lua script atomically on its single command thread, so there is no write skew
+   without locks. Compare Portfolio 3 D10, where PostgreSQL needed SERIALIZABLE or a row lock.)
+
+======================================================================
+K3. Leaderboard: sorted set of October agent volume (loaded from PostgreSQL)
+======================================================================
+  #1  AGL-000001  N56,513,740
+  #2  AGL-000002  N23,697,930
+  #3  AGL-000003  N19,970,170
+  #4  AGL-000004  N15,528,950
+  #5  AGL-000006  N15,417,200
+  ZREVRANGE top 5 over 3000 agents took 0.53 ms
+  live update: ZINCRBY AGL-000057 +50,000 -> rank #67
+
+======================================================================
+K4. Terminal presence with TTL (heartbeat every 30 s, key lives 2 s in this demo)
+======================================================================
+  online terminals: ['online:2AGL0057', 'online:2AGL0058']
+  after 2.4 s     : ['online:2AGL0057'] <- 2AGL0058 expired automatically
+
+======================================================================
+K5. Cache-aside: agent profile in front of PostgreSQL
+======================================================================
+  MISS   8.881 ms  {'code': 'AGL-000057', 'name': 'Success Enterprises', 'status': 'ACTIVE', 'limit': '300000.00', 'lga': 'Apapa'}
+  HIT    0.122 ms  {'code': 'AGL-000057', 'name': 'Success Enterprises', 'status': 'ACTIVE', 'limit': '300000.00', 'lga': 'Apapa'}
+  HIT    0.088 ms  {'code': 'AGL-000057', 'name': 'Success Enterprises', 'status': 'ACTIVE', 'limit': '300000.00', 'lga': 'Apapa'}
+  invalidate on change: DEL agent:AGL-000057 -> 1
+
+======================================================================
+K6. Wrong-PIN limiter: 3 attempts per card per 15 minutes
+======================================================================
+  wrong PIN #1: counter=1 -> allow retry
+  wrong PIN #2: counter=2 -> allow retry
+  wrong PIN #3: counter=3 -> BLOCK card for 15 min
+  wrong PIN #4: counter=4 -> BLOCK card for 15 min
+  wrong PIN #5: counter=5 -> BLOCK card for 15 min
+
+======================================================================
+K7. Redis Stream: completed transactions fan out to independent consumer groups
+======================================================================
+  sms group received 3 events; fraud group received 3 events
+  fraud-worker-1 1793782813302-0 R261104000000101 N20,000 -> ok
+  fraud-worker-1 1793782813302-1 R261104000000102 N95,000 -> REVIEW (amount >= 90,000)
+  fraud-worker-1 1793782813302-2 R261104000000103 N3,000 -> ok
+  pending (unacknowledged) for sms group: 3
+
+======================================================================
+Memory
+======================================================================
+  used_memory_human: 1.83M | keys: 6

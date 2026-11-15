@@ -1,0 +1,67 @@
+-- Q8: Top 10 agents by October commission, ranked with a window function
+-- phase: after
+
+SELECT * FROM (
+    SELECT a.agent_code, a.business_name, sum(c.agent_amount) AS commission,
+           RANK() OVER (ORDER BY sum(c.agent_amount) DESC) AS rnk
+    FROM commission c
+    JOIN pos_transaction t ON t.txn_id = c.txn_id
+    JOIN agent a           ON a.agent_id = t.agent_id
+    WHERE t.created_at >= '2026-10-01' AND t.created_at < '2026-11-01'
+    GROUP BY a.agent_code, a.business_name
+) r WHERE rnk <= 10;
+
+WindowAgg  (cost=49689.50..49742.00 rows=3000 width=67) (actual time=410.095..415.670 rows=10 loops=1)
+  Run Condition: (rank() OVER (?) <= 10)
+  Buffers: shared hit=11718
+  ->  Sort  (cost=49689.50..49697.00 rows=3000 width=59) (actual time=410.083..415.647 rows=11 loops=1)
+        Sort Key: (sum(c.agent_amount)) DESC
+        Sort Method: quicksort  Memory: 279kB
+        Buffers: shared hit=11718
+        ->  Finalize GroupAggregate  (cost=48718.69..49516.24 rows=3000 width=59) (actual time=397.069..414.458 rows=3000 loops=1)
+              Group Key: a.agent_code, a.business_name
+              Buffers: shared hit=11718
+              ->  Gather Merge  (cost=48718.69..49418.74 rows=6000 width=59) (actual time=397.047..409.893 rows=8991 loops=1)
+                    Workers Planned: 2
+                    Workers Launched: 2
+                    Buffers: shared hit=11718
+                    ->  Sort  (cost=47718.66..47726.16 rows=3000 width=59) (actual time=387.731..388.220 rows=2997 loops=3)
+                          Sort Key: a.agent_code, a.business_name
+                          Sort Method: quicksort  Memory: 447kB
+                          Buffers: shared hit=11718
+                          Worker 0:  Sort Method: quicksort  Memory: 447kB
+                          Worker 1:  Sort Method: quicksort  Memory: 446kB
+                          ->  Partial HashAggregate  (cost=47507.90..47545.40 rows=3000 width=59) (actual time=381.347..383.438 rows=2997 loops=3)
+                                Group Key: a.agent_code, a.business_name
+                                Batches: 1  Memory Usage: 2161kB
+                                Buffers: shared hit=11702
+                                Worker 0:  Batches: 1  Memory Usage: 2161kB
+                                Worker 1:  Batches: 1  Memory Usage: 2161kB
+                                ->  Hash Join  (cost=36524.80..47031.54 rows=63515 width=32) (actual time=259.057..327.839 rows=50087 loops=3)
+                                      Hash Cond: (t.agent_id = a.agent_id)
+                                      Buffers: shared hit=11702
+                                      ->  Parallel Hash Join  (cost=36413.30..46753.08 rows=63515 width=9) (actual time=255.920..303.002 rows=50087 loops=3)
+                                            Hash Cond: (c.txn_id = t.txn_id)
+                                            Buffers: shared hit=11542
+                                            ->  Parallel Seq Scan on commission c  (cost=0.00..9367.38 rows=370438 width=13) (actual time=0.012..43.062 rows=296350 loops=3)
+                                                  Buffers: shared hit=5663
+                                            ->  Parallel Hash  (cost=35331.99..35331.99 rows=86505 width=12) (actual time=73.650..73.653 rows=68015 loops=3)
+                                                  Buckets: 262144  Batches: 1  Memory Usage: 11648kB
+                                                  Buffers: shared hit=5849
+                                                  ->  Parallel Bitmap Heap Scan on pos_transaction t  (cost=66.13..35331.99 rows=86505 width=12) (actual time=1.065..38.865 rows=68015 loops=3)
+                                                        Recheck Cond: ((created_at >= '2026-10-01 00:00:00+01'::timestamp with time zone) AND (created_at < '2026-11-01 00:00:00+01'::timestamp with time zone))
+                                                        Rows Removed by Index Recheck: 4122
+                                                        Heap Blocks: lossy=3182
+                                                        Buffers: shared hit=5849
+                                                        ->  Bitmap Index Scan on idx_txn_created_brin  (cost=0.00..14.23 rows=324297 width=0) (actual time=0.237..0.237 rows=58470 loops=1)
+                                                              Index Cond: ((created_at >= '2026-10-01 00:00:00+01'::timestamp with time zone) AND (created_at < '2026-11-01 00:00:00+01'::timestamp with time zone))
+                                                              Buffers: shared hit=2
+                                      ->  Hash  (cost=74.00..74.00 rows=3000 width=31) (actual time=3.104..3.105 rows=3000 loops=3)
+                                            Buckets: 4096  Batches: 1  Memory Usage: 224kB
+                                            Buffers: shared hit=132
+                                            ->  Seq Scan on agent a  (cost=0.00..74.00 rows=3000 width=31) (actual time=0.015..1.825 rows=3000 loops=3)
+                                                  Buffers: shared hit=132
+Planning:
+  Buffers: shared hit=35
+Planning Time: 0.695 ms
+Execution Time: 415.800 ms

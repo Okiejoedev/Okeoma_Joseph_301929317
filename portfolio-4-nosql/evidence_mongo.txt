@@ -1,0 +1,223 @@
+
+======================================================================
+M1. One read returns an agent with its terminals, LGA and super agent (no JOIN)
+======================================================================
+{
+  _id: 'AGL-000057',
+  business_name: 'Success Enterprises',
+  tier: 'C',
+  lga: {
+    code: 'APA',
+    name: 'Apapa'
+  },
+  super_agent: {
+    id: 28,
+    name: 'Super Agent B2 Ltd',
+    share: Decimal128('0.350')
+  },
+  terminals: [
+    {
+      terminal_id: '2AGL0057',
+      serial_no: 'SN0007000057',
+      model: 'Horizon K11',
+      status: 'ACTIVE'
+    }
+  ]
+}
+
+======================================================================
+M2. Polymorphic documents: one collection, a different shape per transaction type
+======================================================================
+{
+  _id: 'R261001000043784',
+  type: 'CASH_OUT',
+  amount: Decimal128('500.00'),
+  fee: Decimal128('100.00'),
+  card: {
+    scheme: 'Visa',
+    pan_masked: '5061******1205',
+    stan: '931205',
+    auth_code: '769364'
+  }
+}
+{
+  _id: 'R261001000208689',
+  type: 'TRANSFER',
+  amount: Decimal128('1000.00'),
+  fee: Decimal128('50.00'),
+  beneficiary: {
+    bank: 'First Bank',
+    account_masked: '******8802',
+    nip_session_id: '559112574379770239894918568802'
+  }
+}
+{
+  _id: 'R261014000247570',
+  type: 'BILL_PAY',
+  amount: Decimal128('2100.00'),
+  fee: Decimal128('100.00'),
+  bill: {
+    biller: 'StarTimes',
+    category: 'cable_tv',
+    smartcard_no: '5987991154',
+    bouquet: 'Jolli'
+  }
+}
+{
+  _id: 'R261001000460744',
+  type: 'AIRTIME',
+  amount: Decimal128('100.00'),
+  fee: Decimal128('0.00'),
+  topup: {
+    network: 'MTN',
+    msisdn: '08092465136',
+    product: 'airtime'
+  }
+}
+
+======================================================================
+M3. Schema validation ($jsonSchema): invalid receipt is rejected
+======================================================================
+REJECTED: Document failed validation
+   - property 'type': "value was not found in enum"
+   - property 'amount': "comparison failed"
+
+======================================================================
+M4. Index tuning: customer mini-statement, BEFORE index (COLLSCAN)
+======================================================================
+{
+  plan: 'SORT <- COLLSCAN',
+  nReturned: 6,
+  totalKeysExamined: 0,
+  totalDocsExamined: 204046,
+  executionTimeMillis: 187
+}
+
+======================================================================
+M4b. AFTER compound index {customer.id: 1, created_at: -1} (IXSCAN, no in-memory SORT)
+======================================================================
+{
+  plan: 'LIMIT <- FETCH <- IXSCAN',
+  nReturned: 6,
+  totalKeysExamined: 6,
+  totalDocsExamined: 6,
+  executionTimeMillis: 2
+}
+
+======================================================================
+M5. Aggregation: October SUCCESS volume by LGA (agent LGA is embedded -> no $lookup)
+======================================================================
+[
+  {
+    _id: 'ALI',
+    txns: 32342,
+    volume: Decimal128('741149390.00')
+  },
+  {
+    _id: 'IKJ',
+    txns: 17743,
+    volume: Decimal128('421509672.50')
+  },
+  {
+    _id: 'OSH',
+    txns: 12710,
+    volume: Decimal128('295280872.50')
+  },
+  {
+    _id: 'KOS',
+    txns: 12039,
+    volume: Decimal128('281937860.00')
+  },
+  {
+    _id: 'ETI',
+    txns: 11472,
+    volume: Decimal128('268275025.00')
+  }
+]
+
+======================================================================
+M6. Aggregation on type-specific fields: electricity units sold per biller
+======================================================================
+[
+  {
+    _id: 'Eko Electricity',
+    payments: 3065,
+    naira: Decimal128('65612900.00'),
+    kwh: 313187.2
+  },
+  {
+    _id: 'Ikeja Electric',
+    payments: 3051,
+    naira: Decimal128('63538700.00'),
+    kwh: 303284.6
+  }
+]
+
+======================================================================
+M7. $lookup when we DO need the full parent: top 3 agents by October fees, with super agent
+======================================================================
+[
+  {
+    _id: 'AGL-000001',
+    fees: Decimal128('417850.00'),
+    txns: 2304,
+    business: 'Hope Ventures',
+    super_agent: 'Super Agent O Ltd'
+  },
+  {
+    _id: 'AGL-000002',
+    fees: Decimal128('200550.00'),
+    txns: 1074,
+    business: 'Kings POS',
+    super_agent: 'Super Agent E Ltd'
+  },
+  {
+    _id: 'AGL-000003',
+    fees: Decimal128('152145.00'),
+    txns: 890,
+    business: 'Victory Ventures',
+    super_agent: 'Super Agent B2 Ltd'
+  }
+]
+
+======================================================================
+M8. Time-series collection: hourly average signal & min battery for terminal 2AGL0007
+======================================================================
+[
+  {
+    _id: ISODate('2026-10-31T07:00:00.000Z'),
+    avg_signal_dbm: -85.83333333333333,
+    min_battery: 93
+  },
+  {
+    _id: ISODate('2026-10-31T08:00:00.000Z'),
+    avg_signal_dbm: -86.5,
+    min_battery: 84
+  },
+  {
+    _id: ISODate('2026-10-31T09:00:00.000Z'),
+    avg_signal_dbm: -79.75,
+    min_battery: 80
+  },
+  {
+    _id: ISODate('2026-10-31T10:00:00.000Z'),
+    avg_signal_dbm: -82,
+    min_battery: 72
+  }
+]
+time-series buckets: 200 for 33600 measurements
+
+======================================================================
+M9. TTL index: OTP documents expire automatically
+======================================================================
+OTP inserted with created_at 125s ago; TTL = 120s; docs now: 1
+indexes: [["_id_",null],["created_at_1",120]]
+(the TTL monitor runs every 60s; see evidence of deletion at the end of this file)
+
+======================================================================
+M10. Storage comparison
+======================================================================
+transactions docs: 204046 | avg doc size: 405 bytes | data size: 79.0 MB | storage (compressed): 27.3 MB
+
+--- TTL check 70 seconds later:
+otp_sessions docs now: 0  (expired OTP removed by the TTL monitor)

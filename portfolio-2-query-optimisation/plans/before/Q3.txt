@@ -1,0 +1,22 @@
+-- Q3: Daily cash-out limit check (runs before EVERY cash-out is approved)
+-- phase: before
+
+SELECT COALESCE(sum(amount), 0) AS cashed_out_today
+FROM pos_transaction
+WHERE agent_id = 57 AND type_code = 'CASH_OUT' AND status = 'SUCCESS'
+  AND created_at >= '2026-10-15' AND created_at < '2026-10-16';
+
+Finalize Aggregate  (cost=45572.72..45572.73 rows=1 width=32) (actual time=99.940..105.159 rows=1 loops=1)
+  Buffers: shared hit=27351 read=5888
+  ->  Gather  (cost=45572.50..45572.71 rows=2 width=32) (actual time=96.777..105.137 rows=3 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=27351 read=5888
+        ->  Partial Aggregate  (cost=44572.50..44572.51 rows=1 width=32) (actual time=93.418..93.419 rows=1 loops=3)
+              Buffers: shared hit=27351 read=5888
+              ->  Parallel Seq Scan on pos_transaction  (cost=0.00..44572.49 rows=1 width=5) (actual time=40.946..93.406 rows=1 loops=3)
+                    Filter: ((created_at >= '2026-10-15 00:00:00+01'::timestamp with time zone) AND (created_at < '2026-10-16 00:00:00+01'::timestamp with time zone) AND (agent_id = 57) AND ((type_code)::text = 'CASH_OUT'::text) AND ((status)::text = 'SUCCESS'::text))
+                    Rows Removed by Filter: 403239
+                    Buffers: shared hit=27351 read=5888
+Planning Time: 0.147 ms
+Execution Time: 105.200 ms

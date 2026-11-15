@@ -1,0 +1,20 @@
+-- Q3: Daily cash-out limit check (runs before EVERY cash-out is approved)
+-- phase: after
+
+SELECT COALESCE(sum(amount), 0) AS cashed_out_today
+FROM pos_transaction
+WHERE agent_id = 57 AND type_code = 'CASH_OUT' AND status = 'SUCCESS'
+  AND created_at >= '2026-10-15' AND created_at < '2026-10-16';
+
+Aggregate  (cost=4.69..4.70 rows=1 width=32) (actual time=0.020..0.021 rows=1 loops=1)
+  Buffers: shared hit=4
+  ->  Index Only Scan using idx_txn_agent_time on pos_transaction  (cost=0.43..4.67 rows=4 width=5) (actual time=0.012..0.015 rows=4 loops=1)
+        Index Cond: ((agent_id = 57) AND (created_at >= '2026-10-15 00:00:00+01'::timestamp with time zone) AND (created_at < '2026-10-16 00:00:00+01'::timestamp with time zone))
+        Filter: (((type_code)::text = 'CASH_OUT'::text) AND ((status)::text = 'SUCCESS'::text))
+        Rows Removed by Filter: 3
+        Heap Fetches: 0
+        Buffers: shared hit=4
+Planning:
+  Buffers: shared hit=1
+Planning Time: 0.155 ms
+Execution Time: 0.039 ms

@@ -1,0 +1,100 @@
+
+======================================================================
+R0. Create the hot standby with pg_basebackup (-R writes primary_conninfo)
+======================================================================
+base backup of 1.2G took 2 s
+primary_conninfo = 'user=postgres passfile=''/var/lib/postgresql/.pgpass'' channel_binding=prefer host=localhost port=54
+replica in recovery (standby)? t
+
+======================================================================
+R1. Primary view of its standbys (pg_stat_replication)
+======================================================================
+ application_name | client_addr |   state   | sync_state |  sent_lsn  | replay_lsn 
+------------------+-------------+-----------+------------+------------+------------
+ replica1         | 127.0.0.1   | streaming | async      | 0/BC000060 | 0/BC000060
+(1 row)
+
+
+======================================================================
+R2. Write on primary, read on replica (read scaling) + measured lag
+======================================================================
+10:12:44.243 primary committed
+10:12:44.281 replica sees: Repl Test
+ application_name |    write_lag    |    flush_lag    |   replay_lag    | bytes_behind 
+------------------+-----------------+-----------------+-----------------+--------------
+ replica1         | 00:00:00.000258 | 00:00:00.002671 | 00:00:00.003045 |            0
+(1 row)
+
+
+======================================================================
+R3. Bulk write: 50,000 rows on primary, then compare row counts
+======================================================================
+primary rows: 50000  |  replica rows: 50000
+
+======================================================================
+R4. The standby is read-only
+======================================================================
+ERROR:  cannot execute UPDATE in a read-only transaction
+
+======================================================================
+R5. Analytics offloaded to the replica (same answer, primary not loaded)
+======================================================================
+ oct_success |    volume     
+-------------+---------------
+      193954 | 4498560092.50
+(1 row)
+
+
+======================================================================
+R6. SYNCHRONOUS replication: commit waits for the standby (consistency)
+======================================================================
+ application_name | sync_state 
+------------------+------------
+ replica1         | sync
+(1 row)
+
+Time: 2.104 ms
+
+======================================================================
+R7. Standby goes DOWN while sync replication is required -> primary cannot confirm commits
+======================================================================
+10:12:46.971 replica1 stopped
+10:12:46.973 session A attempts a write...
+10:12:50.979 after 4 s session A is still waiting:
+ pid  | state  | wait_event_type | wait_event |   waiting_for   
+------+--------+-----------------+------------+-----------------
+ 5658 | active | IPC             | SyncRep    | 00:00:04.002917
+(1 row)
+
+10:12:51.017 operator cancels the waiting backend (statement_timeout does NOT interrupt a SyncRep wait)
+   session A: WARNING:  canceling wait for synchronous replication due to user request
+   session A: DETAIL:  The transaction has already committed locally, but might not have been replicated to the standby.
+10:12:51.068 -> under CAP, synchronous mode chose CONSISTENCY: the write is not acknowledged (unavailable).
+
+======================================================================
+R8. Switch to ASYNCHRONOUS commit -> primary available again (risk: data loss window)
+======================================================================
+Time: 1.116 ms
+standby restarted; it catches up from WAL. replica rows with id<0: -1,-2,-3
+
+======================================================================
+R9. FAILOVER: primary crashes, replica is promoted
+======================================================================
+10:12:55.468 crashing primary (pg_ctl stop -m immediate)
+10:12:55.718 replica promoted in 0.14 s; in recovery now? f
+ id |           payload           
+----+-----------------------------
+ -1 | sync commit with standby UP
+ -2 | written while standby down
+ -3 | async commit, standby down
+ -4 | last write before crash
+ -5 | first write on NEW primary
+(5 rows)
+
+No committed row was lost: -4 (written just before the crash) is present on the new primary.
+
+======================================================================
+R10. Clean-up for the rest of the portfolio: original primary restarted, demo standby retired
+======================================================================
+original primary back online: in recovery? f
+(In production the old primary would be re-attached as a standby of the new one with pg_rewind.)

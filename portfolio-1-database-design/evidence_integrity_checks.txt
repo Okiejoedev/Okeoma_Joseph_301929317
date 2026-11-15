@@ -1,0 +1,68 @@
+SET
+--- Row counts
+        t        |  count  
+-----------------+---------
+ lga             |      20
+ super_agent     |      30
+ dispute         |    3000
+ terminal        |    3350
+ agent           |    3000
+ customer        |   80000
+ wallet          |   83002
+ commission      |  889051
+ pos_transaction | 1209721
+ ledger_entry    | 3223039
+(10 rows)
+
+--- Transactions by type and status
+ type_code |  status  | count  | avg_amount 
+-----------+----------+--------+------------
+ AIRTIME   | FAILED   |   5111 |     766.48
+ AIRTIME   | PENDING  |      1 |     200.00
+ AIRTIME   | REVERSED |    902 |     756.76
+ AIRTIME   | SUCCESS  | 114249 |     757.06
+ BILL_PAY  | FAILED   |   4002 |   20889.71
+ BILL_PAY  | REVERSED |    796 |   20316.46
+ BILL_PAY  | SUCCESS  |  91547 |   21030.12
+ CASH_IN   | FAILED   |   6093 |   22799.28
+ CASH_IN   | REVERSED |   1160 |   22439.66
+ CASH_IN   | SUCCESS  | 136593 |   23615.58
+ CASH_OUT  | FAILED   |  22574 |   18792.50
+ CASH_OUT  | PENDING  |      5 |   29300.00
+ CASH_OUT  | REVERSED |   4397 |   18877.98
+ CASH_OUT  | SUCCESS  | 512651 |   18773.51
+ REVERSAL  | SUCCESS  |   9721 |   23343.63
+ TRANSFER  | FAILED   |  12599 |   39966.56
+ TRANSFER  | PENDING  |      1 |  100700.00
+ TRANSFER  | REVERSED |   2466 |   40237.02
+ TRANSFER  | SUCCESS  | 284853 |   40315.21
+(19 rows)
+
+--- Double-entry check: transactions whose debits <> credits (expect 0)
+ unbalanced_txns 
+-----------------
+               0
+(1 row)
+
+--- Wallet reconciliation: balance = opening + credits - debits (expect 0 mismatches)
+ mismatched_wallets 
+--------------------
+                  0
+(1 row)
+
+--- Whole system nets to zero movement (sum of all balances - openings = 0)
+ net_movement 
+--------------
+         0.00
+(1 row)
+
+--- Agents per LGA (top 5)
+   lga_name   | agents 
+--------------+--------
+ Alimosho     |    507
+ Ikeja        |    272
+ Oshodi-Isolo |    212
+ Mushin       |    184
+ Kosofe       |    183
+(5 rows)
+

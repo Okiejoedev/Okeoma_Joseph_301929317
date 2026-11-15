@@ -1,0 +1,31 @@
+SET
+[1] Invalid Nigerian phone number on a customer (CHECK)
+psql:04_constraint_tests.sql:7: ERROR:  new row for relation "customer" violates check constraint "customer_phone_check"
+[2] Duplicate retrieval reference number - POS retry must not double-post (UNIQUE)
+psql:04_constraint_tests.sql:11: ERROR:  duplicate key value violates unique constraint "pos_transaction_txn_ref_key"
+[3] Customer wallet overdraft (CHECK wallet_no_overdraft)
+psql:04_constraint_tests.sql:14: ERROR:  new row for relation "wallet" violates check constraint "wallet_no_overdraft"
+[4] Wallet with two owners (CHECK wallet_one_owner)
+psql:04_constraint_tests.sql:17: ERROR:  new row for relation "wallet" violates check constraint "wallet_one_owner"
+[5] Transaction on a terminal that does not exist (FOREIGN KEY)
+psql:04_constraint_tests.sql:21: ERROR:  insert or update on table "pos_transaction" violates foreign key constraint "pos_transaction_terminal_id_fkey"
+[6] Zero / negative amount (CHECK amount > 0)
+psql:04_constraint_tests.sql:25: ERROR:  new row for relation "pos_transaction" violates check constraint "pos_transaction_amount_check"
+[7] Reversing the same transaction twice (UNIQUE reversal_of)
+psql:04_constraint_tests.sql:30: ERROR:  duplicate key value violates unique constraint "pos_transaction_reversal_of_key"
+[8] Unbalanced double entry - debit without matching credit (DEFERRED constraint trigger at COMMIT)
+BEGIN
+INSERT 0 1
+INSERT 0 1
+    (insert accepted for now - checked at COMMIT)
+psql:04_constraint_tests.sql:40: ERROR:  Unbalanced ledger for txn 1209726: debits 5000.00 <> credits 0
+[9] Resolved dispute without a resolution time (CHECK)
+psql:04_constraint_tests.sql:43: ERROR:  new row for relation "dispute" violates check constraint "dispute_check1"
+[10] Unknown transaction type (FOREIGN KEY to txn_type)
+psql:04_constraint_tests.sql:47: ERROR:  insert or update on table "pos_transaction" violates foreign key constraint "pos_transaction_type_code_fkey"
+--- Confirm nothing leaked in:
+ test_rows 
+-----------
+         0
+(1 row)
+

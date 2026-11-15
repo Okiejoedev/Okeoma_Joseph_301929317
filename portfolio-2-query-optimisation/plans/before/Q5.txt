@@ -1,0 +1,33 @@
+-- Q5: Wallet statement: all ledger postings to one agent wallet in October
+-- phase: before
+
+SELECT le.created_at, le.direction, le.amount, t.txn_ref, t.type_code
+FROM ledger_entry le
+JOIN pos_transaction t ON t.txn_id = le.txn_id
+WHERE le.wallet_id = 59
+  AND le.created_at >= '2026-10-01' AND le.created_at < '2026-11-01'
+ORDER BY le.created_at;
+
+Gather Merge  (cost=53423.09..53448.29 rows=216 width=40) (actual time=182.758..184.528 rows=181 loops=1)
+  Workers Planned: 2
+  Workers Launched: 2
+  Buffers: shared hit=19241 read=9517
+  ->  Sort  (cost=52423.06..52423.33 rows=108 width=40) (actual time=173.993..174.000 rows=60 loops=3)
+        Sort Key: le.created_at
+        Sort Method: quicksort  Memory: 27kB
+        Buffers: shared hit=19241 read=9517
+        Worker 0:  Sort Method: quicksort  Memory: 32kB
+        Worker 1:  Sort Method: quicksort  Memory: 27kB
+        ->  Nested Loop  (cost=0.43..52419.42 rows=108 width=40) (actual time=21.773..173.903 rows=60 loops=3)
+              Buffers: shared hit=19225 read=9517
+              ->  Parallel Seq Scan on ledger_entry le  (cost=0.00..51517.33 rows=108 width=23) (actual time=21.725..173.374 rows=60 loops=3)
+                    Filter: ((created_at >= '2026-10-01 00:00:00+01'::timestamp with time zone) AND (created_at < '2026-11-01 00:00:00+01'::timestamp with time zone) AND (wallet_id = 59))
+                    Rows Removed by Filter: 1074286
+                    Buffers: shared hit=18499 read=9517
+              ->  Index Scan using pos_transaction_pkey on pos_transaction t  (cost=0.43..8.35 rows=1 width=33) (actual time=0.007..0.007 rows=1 loops=181)
+                    Index Cond: (txn_id = le.txn_id)
+                    Buffers: shared hit=726
+Planning:
+  Buffers: shared hit=8
+Planning Time: 0.299 ms
+Execution Time: 184.585 ms

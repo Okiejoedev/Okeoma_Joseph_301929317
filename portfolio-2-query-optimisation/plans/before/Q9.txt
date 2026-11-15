@@ -1,0 +1,35 @@
+-- Q9: Fraud signal: customers with 3+ cash-outs within 10 minutes (window function LAG)
+-- phase: before
+
+SELECT customer_id, created_at, prev2
+FROM (
+    SELECT customer_id, created_at,
+           LAG(created_at, 2) OVER (PARTITION BY customer_id ORDER BY created_at) AS prev2
+    FROM pos_transaction
+    WHERE type_code = 'CASH_OUT' AND customer_id IS NOT NULL
+      AND created_at >= '2026-10-01'
+) w
+WHERE created_at - prev2 <= INTERVAL '10 minutes';
+
+Subquery Scan on w  (cost=44437.07..56953.53 rows=28007 width=20) (actual time=184.023..185.877 rows=0 loops=1)
+  Filter: ((w.created_at - w.prev2) <= '00:10:00'::interval)
+  Rows Removed by Filter: 83657
+  Buffers: shared hit=30127 read=3200
+  ->  WindowAgg  (cost=44437.07..55693.20 rows=84022 width=20) (actual time=123.150..181.078 rows=83657 loops=1)
+        Buffers: shared hit=30127 read=3200
+        ->  Gather Merge  (cost=44437.07..54222.81 rows=84022 width=12) (actual time=123.132..149.967 rows=83657 loops=1)
+              Workers Planned: 2
+              Workers Launched: 2
+              Buffers: shared hit=30127 read=3200
+              ->  Sort  (cost=43437.04..43524.57 rows=35009 width=12) (actual time=111.240..116.708 rows=27886 loops=3)
+                    Sort Key: pos_transaction.customer_id, pos_transaction.created_at
+                    Sort Method: quicksort  Memory: 3774kB
+                    Buffers: shared hit=30127 read=3200
+                    Worker 0:  Sort Method: quicksort  Memory: 825kB
+                    Worker 1:  Sort Method: quicksort  Memory: 975kB
+                    ->  Parallel Seq Scan on pos_transaction  (cost=0.00..40794.66 rows=35009 width=12) (actual time=26.791..96.517 rows=27886 loops=3)
+                          Filter: ((customer_id IS NOT NULL) AND (created_at >= '2026-10-01 00:00:00+01'::timestamp with time zone) AND ((type_code)::text = 'CASH_OUT'::text))
+                          Rows Removed by Filter: 375355
+                          Buffers: shared hit=30039 read=3200
+Planning Time: 0.135 ms
+Execution Time: 185.914 ms

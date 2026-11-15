@@ -1,0 +1,16 @@
+-- Q4: Operations queue: failed transactions in the last 3 days not yet reversed
+-- phase: after
+
+SELECT t.txn_id, t.txn_ref, t.agent_id, t.amount, t.created_at
+FROM pos_transaction t
+WHERE t.status = 'FAILED'
+  AND t.created_at >= '2026-10-29'
+ORDER BY t.created_at;
+
+Index Scan using idx_txn_failed_time on pos_transaction t  (cost=0.29..1825.43 rows=776 width=42) (actual time=0.007..0.254 rows=815 loops=1)
+  Index Cond: (created_at >= '2026-10-29 00:00:00+01'::timestamp with time zone)
+  Buffers: shared hit=429
+Planning:
+  Buffers: shared hit=1
+Planning Time: 0.049 ms
+Execution Time: 0.314 ms

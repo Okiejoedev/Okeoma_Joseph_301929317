@@ -1,0 +1,10 @@
+query,title,before_ms,after_ms,speedup_x,before_access,after_access
+Q1,Customer mini-statement: last 20 transactions of one customer (wallet app),116.45,0.09,1279.7,Seq Scan (pos_transaction); Index Scan (agent_pkey),Index Scan (idx_txn_customer_time); Index Scan (agent_pkey)
+Q2,Agent end-of-day summary for one agent and one day (POS terminal report),127.45,0.07,1902.3,Seq Scan (pos_transaction),Index Only Scan (idx_txn_agent_time)
+Q3,Daily cash-out limit check (runs before EVERY cash-out is approved),114.70,0.03,3584.4,Seq Scan (pos_transaction),Index Only Scan (idx_txn_agent_time)
+Q4,Operations queue: failed transactions in the last 3 days not yet reversed,131.47,0.32,416.0,Seq Scan (pos_transaction),Index Scan (idx_txn_failed_time)
+Q5,Wallet statement: all ledger postings to one agent wallet in October,161.83,0.46,355.7,Seq Scan (ledger_entry); Index Scan (pos_transaction_pkey),Index Scan (idx_ledger_wallet_time); Index Scan (pos_transaction_pkey)
+Q6,Dispute investigation: open disputes with their ledger postings,256.40,9.02,28.4,Seq Scan (ledger_entry); Seq Scan (dispute); Index Scan (pos_transaction_pkey),Seq Scan (dispute); Index Scan (pos_transaction_pkey); Index Scan (idx_ledger_txn)
+Q7,Management report: October successful volume by LGA (large range scan),182.62,140.44,1.3,Seq Scan (pos_transaction); Seq Scan (agent); Seq Scan (lga),Index Scan (agent_pkey); Index Scan (lga_pkey); Index Only Scan (idx_txn_agent_time)
+Q8,"Top 10 agents by October commission, ranked with a window function",434.72,385.39,1.1,Seq Scan (commission); Seq Scan (pos_transaction); Seq Scan (agent),Seq Scan (commission); Bitmap Heap Scan (pos_transaction); Bitmap Index Scan (idx_txn_created_brin); Seq Scan (agent)
+Q9,Fraud signal: customers with 3+ cash-outs within 10 minutes (window function LAG),182.56,61.68,3.0,Subquery Scan; Seq Scan (pos_transaction),Subquery Scan; Index Only Scan (idx_txn_cashout_cust_time)

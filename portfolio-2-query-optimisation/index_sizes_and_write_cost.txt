@@ -1,0 +1,15 @@
+Index sizes after build
+  idx_ledger_wallet_time       96 MB
+  idx_txn_agent_time           76 MB
+  idx_ledger_txn               52 MB
+  idx_txn_customer_time        36 MB
+  idx_txn_cashout_cust_time    15 MB
+  idx_txn_failed_time          1120 kB
+  idx_txn_created_brin         24 kB
+
+Total index build time: 6.9 s
+
+Insert 50,000 POS transactions (rolled back):
+  before P2 indexes: 1722 ms
+  after  P2 indexes: 2024 ms
+  overhead: 1.18x

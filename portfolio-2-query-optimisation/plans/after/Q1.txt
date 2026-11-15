@@ -1,0 +1,24 @@
+-- Q1: Customer mini-statement: last 20 transactions of one customer (wallet app)
+-- phase: after
+
+SELECT t.txn_ref, t.created_at, t.type_code, t.amount, t.fee, t.status, a.business_name
+FROM pos_transaction t
+JOIN agent a ON a.agent_id = t.agent_id
+WHERE t.customer_id = 1234
+ORDER BY t.created_at DESC
+LIMIT 20;
+
+Limit  (cost=0.71..177.79 rows=17 width=65) (actual time=0.012..0.065 rows=20 loops=1)
+  Buffers: shared hit=83
+  ->  Nested Loop  (cost=0.71..177.79 rows=17 width=65) (actual time=0.011..0.063 rows=20 loops=1)
+        Buffers: shared hit=83
+        ->  Index Scan using idx_txn_customer_time on pos_transaction t  (cost=0.43..72.72 rows=17 width=53) (actual time=0.007..0.019 rows=20 loops=1)
+              Index Cond: (customer_id = 1234)
+              Buffers: shared hit=23
+        ->  Index Scan using agent_pkey on agent a  (cost=0.28..6.18 rows=1 width=20) (actual time=0.002..0.002 rows=1 loops=20)
+              Index Cond: (agent_id = t.agent_id)
+              Buffers: shared hit=60
+Planning:
+  Buffers: shared hit=14
+Planning Time: 0.203 ms
+Execution Time: 0.082 ms

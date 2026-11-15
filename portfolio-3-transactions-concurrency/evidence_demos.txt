@@ -1,0 +1,184 @@
+AgentLink Lagos - Portfolio 3 transaction & concurrency evidence
+PostgreSQL: 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) | default isolation: read committed | deadlock_timeout: 1s
+
+==============================================================================
+D1  COMMIT - successful cash-out
+     Debit customer, credit agent, credit fee wallet, insert txn + 3 ledger rows: all or nothing.
+==============================================================================
+  [t+ 0.006s] before    balances -> Ada N50,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 0.020s] A         cash_out(N10,000) for Ada returned txn_id=1309739; fee = N300.00
+  [t+ 0.021s] A           ledger D wallet 83005 N10,300.00
+  [t+ 0.021s] A           ledger C wallet 83004 N10,000.00
+  [t+ 0.021s] A           ledger C wallet 1 N300.00
+  [t+ 0.022s] A         COMMIT (deferred double-entry trigger passed)
+  [t+ 0.028s] after     balances -> Ada N39,700.00 | Bayo N20,000.00 | Agent N310,000.00
+  [t+ 0.034s] CHECK     wallets whose balance disagrees with the ledger: 0
+
+==============================================================================
+D2  ROLLBACK - failed business rule and explicit rollback
+     An exception anywhere in the transaction undoes every change made before it.
+==============================================================================
+  [t+ 0.006s] before    balances -> Ada N50,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 0.020s] A         ERROR: Insufficient funds: balance 20000.00, needed 25375.00
+  [t+ 0.020s] A         ROLLBACK
+  [t+ 0.021s] A         BEGIN; cash_out(N5,000) for Ada ... customer cancels at the POS
+  [t+ 0.028s] A         inside txn Ada's balance is N44,800.00
+  [t+ 0.029s] A         ROLLBACK (explicit)
+  [t+ 0.129s] CHECK     transactions with ref XD2*: 0 (nothing persisted)
+  [t+ 0.134s] after     balances -> Ada N50,000.00 | Bayo N20,000.00 | Agent N300,000.00
+
+==============================================================================
+D3  SAVEPOINT - partial rollback in a batch
+     Ada pays 3 bills in one transaction; the 2nd overdraws, only it is undone.
+==============================================================================
+  [t+ 0.006s] before    balances -> Ada N50,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 0.016s] A         bill 1: N15,000 debited
+  [t+ 0.019s] A         bill 2: N60,000 rejected (wallet_no_overdraft) -> ROLLBACK TO SAVEPOINT
+  [t+ 0.020s] A         bill 3: N8,000 debited
+  [t+ 0.020s] A         (demo rolled back - bill payments here were not posted to the ledger)
+  [t+ 0.020s] A         result inside txn was: 50,000 - 15,000 - 8,000 = 27,000; bill 2 skipped
+
+==============================================================================
+D4  ATOMICITY on crash - POS terminal loses its connection mid-transaction
+     The server rolls back an uncommitted transaction when its session dies.
+==============================================================================
+  [t+ 0.008s] before    balances -> Ada N50,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 0.025s] A         cash_out(N20,000) done but NOT committed (backend pid 3868)
+  [t+ 0.029s] ADMIN     pg_terminate_backend(3868)  -- simulates network drop / crash
+  [t+ 0.033s] A         COMMIT failed: terminating connection due to administrator command
+  [t+ 0.040s] after     balances -> Ada N50,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 0.047s] CHECK     wallets whose balance disagrees with the ledger: 0
+
+==============================================================================
+D5  LOST UPDATE - naive read-modify-write (READ COMMITTED)
+     Two tellers withdraw from Ada at the same moment: A=N10,000, B=N5,000.
+==============================================================================
+  [t+ 0.006s] before    balances -> Ada N50,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 0.019s] A         read balance N50,000.00 (version 0)
+  [t+ 0.021s] B         read balance N50,000.00 (version 0)
+  [t+ 0.023s] A         write balance = N50,000.00 - N10,000 = N40,000.00
+  [t+ 0.026s] A         COMMIT
+  [t+ 0.028s] B         write balance = N50,000.00 - N5,000 = N45,000.00
+  [t+ 0.028s] B         COMMIT
+  [t+ 0.035s] after     balances -> Ada N45,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 0.040s] CHECK     expected 50,000 - 10,000 - 5,000 = N35,000; got N45,000.00 -> WRONG - an update was LOST
+
+==============================================================================
+D6  FIX 1 - pessimistic locking with SELECT ... FOR UPDATE
+     B's read blocks until A commits, then B sees A's result.
+==============================================================================
+  [t+ 0.007s] before    balances -> Ada N50,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 0.021s] A         read balance N50,000.00 (version 0)
+  [t+ 1.523s] A         write balance = N50,000.00 - N10,000 = N40,000.00
+  [t+ 1.524s] A         COMMIT
+  [t+ 1.525s] B         read balance N40,000.00 (version 1)  [waited 1.50s for row lock]
+  [t+ 1.526s] B         write balance = N40,000.00 - N5,000 = N35,000.00
+  [t+ 1.527s] B         COMMIT
+  [t+ 1.534s] after     balances -> Ada N35,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 1.538s] CHECK     expected 50,000 - 10,000 - 5,000 = N35,000; got N35,000.00 -> CORRECT
+
+==============================================================================
+D7  FIX 2 - REPEATABLE READ detects the conflict
+     B's UPDATE fails with SQLSTATE 40001; the application retries.
+==============================================================================
+  [t+ 0.009s] before    balances -> Ada N50,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 0.024s] A         read balance N50,000.00 (version 0)
+  [t+ 0.028s] B         read balance N50,000.00 (version 0)
+  [t+ 0.029s] A         write balance = N50,000.00 - N10,000 = N40,000.00
+  [t+ 0.030s] A         COMMIT
+  [t+ 0.032s] B         ERROR 40001: could not serialize access due to concurrent update -> ROLLBACK
+  [t+ 0.032s] B         retrying transaction from the start
+  [t+ 0.032s] B         read balance N40,000.00 (version 1)
+  [t+ 0.033s] B         write balance = N40,000.00 - N5,000 = N35,000.00
+  [t+ 0.034s] B         COMMIT
+  [t+ 0.040s] after     balances -> Ada N35,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 0.048s] CHECK     expected 50,000 - 10,000 - 5,000 = N35,000; got N35,000.00 -> CORRECT
+
+==============================================================================
+D8  FIX 3 - optimistic locking with a version column
+     UPDATE ... WHERE version = <version read>; 0 rows means someone else won.
+==============================================================================
+  [t+ 0.006s] before    balances -> Ada N50,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 0.017s] A         read balance N50,000.00 (version 0)
+  [t+ 0.020s] B         read balance N50,000.00 (version 0)
+  [t+ 0.021s] A         write balance = N50,000.00 - N10,000 = N40,000.00
+  [t+ 0.021s] A         COMMIT
+  [t+ 0.022s] B         UPDATE ... WHERE version = old matched 0 rows -> conflict, ROLLBACK and retry
+  [t+ 0.022s] B         retrying transaction from the start
+  [t+ 0.023s] B         read balance N40,000.00 (version 1)
+  [t+ 0.023s] B         write balance = N40,000.00 - N5,000 = N35,000.00
+  [t+ 0.024s] B         COMMIT
+  [t+ 0.033s] after     balances -> Ada N35,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 0.038s] CHECK     expected 50,000 - 10,000 - 5,000 = N35,000; got N35,000.00 -> CORRECT
+
+==============================================================================
+D9  NON-REPEATABLE READ - READ COMMITTED vs REPEATABLE READ
+     A (an auditor) reads Ada's balance twice while B commits a withdrawal in between.
+==============================================================================
+  [t+ 0.348s] A         [READ COMMITTED] first read  N50,000.00
+  [t+ 0.351s] B         withdraws N7,000 and COMMITs
+  [t+ 0.352s] A         [READ COMMITTED] second read N43,000.00  -> NON-REPEATABLE READ (value changed inside one transaction)
+  [t+ 0.734s] A         [REPEATABLE READ] first read  N50,000.00
+  [t+ 0.737s] B         withdraws N7,000 and COMMITs
+  [t+ 0.738s] A         [REPEATABLE READ] second read N50,000.00  -> same snapshot, repeatable
+
+==============================================================================
+D10  WRITE SKEW / PHANTOM - agent daily cash-out limit (N100,000)
+     Each session checks 'used today + amount <= limit' then inserts. Neither sees the other's insert.
+==============================================================================
+  --- isolation level: REPEATABLE READ
+  [t+ 0.410s] A         used today N0.00; wants N60,000 -> 60,000 <= 100,000 OK
+  [t+ 0.415s] B         used today N0.00; wants N70,000 -> 70,000 <= 100,000 OK
+  [t+ 0.418s] A         INSERT cash-out N60,000
+  [t+ 0.421s] B         INSERT cash-out N70,000
+  [t+ 0.421s] A         COMMIT ok
+  [t+ 0.422s] B         COMMIT ok
+  [t+ 0.429s] CHECK     agent's cash-outs today = N130,000.00 -> LIMIT BROKEN (write skew)
+  --- isolation level: SERIALIZABLE
+  [t+ 0.775s] A         used today N0.00; wants N60,000 -> 60,000 <= 100,000 OK
+  [t+ 0.778s] B         used today N0.00; wants N70,000 -> 70,000 <= 100,000 OK
+  [t+ 0.780s] A         INSERT cash-out N60,000
+  [t+ 0.783s] B         INSERT cash-out N70,000
+  [t+ 0.783s] A         COMMIT ok
+  [t+ 0.784s] B         COMMIT failed 40001: could not serialize access due to read/write dependencies among transactions
+  [t+ 0.784s] B           detail: Reason code: Canceled on identification as a pivot, during commit attempt.
+  [t+ 0.791s] CHECK     agent's cash-outs today = N60,000.00 -> limit respected
+  Note: the production cash_out() function avoids this at READ COMMITTED by locking the
+  agent's wallet row FOR UPDATE before the check, which serialises cash-outs per agent.
+  [t+ 1.125s] A         cash_out(N30,000) via function, not yet committed (holds agent wallet lock)
+  [t+ 1.125s] B         cash_out(N75,000) at the same agent starts...
+  [t+ 2.126s] B         ... is blocked waiting for the agent-wallet row lock
+  [t+ 2.129s] A         COMMIT
+  [t+ 2.129s] B         rejected: Agent AGL-DEMO01 daily cash-out limit exceeded (used 30000.00, limit 100000.00)
+
+==============================================================================
+D11  DEADLOCK - transfers in opposite directions
+     A: Ada -> Bayo, B: Bayo -> Ada. Unordered locking can deadlock; ordered locking cannot.
+==============================================================================
+  --- locking strategy: UNORDERED (source first)
+  [t+ 0.365s] A         wallet_transfer(Ada 83005 -> Bayo 83006, N1,000)
+  [t+ 0.365s] B         wallet_transfer(Bayo 83006 -> Ada 83005, N1,000)
+  [t+ 1.874s] B         ERROR 40P01 deadlock detected -> this txn was chosen as victim, ROLLBACK
+  [t+ 1.876s] A         transfer COMMITTED
+  [t+ 1.882s] after     balances -> Ada N49,000.00 | Bayo N21,000.00 | Agent N300,000.00
+  --- locking strategy: ORDERED (lowest wallet_id first)
+  [t+ 2.196s] A         wallet_transfer(Ada 83005 -> Bayo 83006, N1,000)
+  [t+ 2.196s] B         wallet_transfer(Bayo 83006 -> Ada 83005, N1,000)
+  [t+ 2.205s] B         transfer COMMITTED
+  [t+ 2.212s] A         transfer COMMITTED
+  [t+ 2.218s] after     balances -> Ada N50,000.00 | Bayo N20,000.00 | Agent N300,000.00
+
+==============================================================================
+D12  IDEMPOTENCY - POS retry and double reversal
+     Network timeouts make terminals resend; support staff may click 'reverse' twice.
+==============================================================================
+  [t+ 0.022s] POS       cash_out ref XD12000000001 committed as txn 1309750; response lost in the network
+  [t+ 0.024s] POS       retry with same ref -> 23505 unique_violation (pos_transaction_txn_ref_key)
+  [t+ 0.025s] POS       app returns original result instead: txn 1309750 SUCCESS - customer debited once
+  [t+ 0.033s] after retry balances -> Ada N39,700.00 | Bayo N20,000.00 | Agent N310,000.00
+  [t+ 0.047s] Officer1  reverse_txn -> reversal txn 1309752 COMMITTED
+  [t+ 0.048s] Officer2  reverse_txn rejected: Txn 1309750 cannot be reversed (status REVERSED)
+  [t+ 0.056s] after reversal balances -> Ada N50,000.00 | Bayo N20,000.00 | Agent N300,000.00
+  [t+ 0.069s] CHECK     wallets whose balance disagrees with the ledger: 0
+
+All scenarios finished; demo fixtures reset.

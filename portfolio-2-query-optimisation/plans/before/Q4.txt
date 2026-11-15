@@ -1,0 +1,25 @@
+-- Q4: Operations queue: failed transactions in the last 3 days not yet reversed
+-- phase: before
+
+SELECT t.txn_id, t.txn_ref, t.agent_id, t.amount, t.created_at
+FROM pos_transaction t
+WHERE t.status = 'FAILED'
+  AND t.created_at >= '2026-10-29'
+ORDER BY t.created_at;
+
+Gather Merge  (cost=41809.57..41891.71 rows=704 width=42) (actual time=93.227..95.226 rows=815 loops=1)
+  Workers Planned: 2
+  Workers Launched: 2
+  Buffers: shared hit=28097 read=5216
+  ->  Sort  (cost=40809.55..40810.43 rows=352 width=42) (actual time=82.901..82.924 rows=272 loops=3)
+        Sort Key: created_at
+        Sort Method: quicksort  Memory: 53kB
+        Buffers: shared hit=28097 read=5216
+        Worker 0:  Sort Method: quicksort  Memory: 33kB
+        Worker 1:  Sort Method: quicksort  Memory: 45kB
+        ->  Parallel Seq Scan on pos_transaction t  (cost=0.00..40794.66 rows=352 width=42) (actual time=21.022..82.750 rows=272 loops=3)
+              Filter: ((created_at >= '2026-10-29 00:00:00+01'::timestamp with time zone) AND ((status)::text = 'FAILED'::text))
+              Rows Removed by Filter: 402969
+              Buffers: shared hit=28023 read=5216
+Planning Time: 0.090 ms
+Execution Time: 95.276 ms

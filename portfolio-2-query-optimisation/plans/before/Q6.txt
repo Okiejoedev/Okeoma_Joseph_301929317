@@ -1,0 +1,42 @@
+-- Q6: Dispute investigation: open disputes with their ledger postings
+-- phase: before
+
+SELECT d.dispute_id, d.reason, t.txn_ref, t.amount, le.wallet_id, le.direction, le.amount AS posted
+FROM dispute d
+JOIN pos_transaction t ON t.txn_id = d.txn_id
+JOIN ledger_entry le   ON le.txn_id = t.txn_id
+WHERE d.status = 'OPEN'
+ORDER BY d.opened_at;
+
+Gather Merge  (cost=48109.26..48308.54 rows=1708 width=61) (actual time=384.787..391.030 rows=2307 loops=1)
+  Workers Planned: 2
+  Workers Launched: 2
+  Buffers: shared hit=28693 read=8845
+  ->  Sort  (cost=47109.24..47111.37 rows=854 width=61) (actual time=379.207..379.255 rows=769 loops=3)
+        Sort Key: d.opened_at
+        Sort Method: quicksort  Memory: 88kB
+        Buffers: shared hit=28693 read=8845
+        Worker 0:  Sort Method: quicksort  Memory: 105kB
+        Worker 1:  Sort Method: quicksort  Memory: 91kB
+        ->  Nested Loop  (cost=107.54..47067.66 rows=854 width=61) (actual time=64.985..377.104 rows=769 loops=3)
+              Join Filter: (t.txn_id = d.txn_id)
+              Buffers: shared hit=28677 read=8845
+              ->  Hash Join  (cost=107.11..46597.71 rows=927 width=55) (actual time=64.919..371.926 rows=769 loops=3)
+                    Hash Cond: (le.txn_id = d.txn_id)
+                    Buffers: shared hit=19447 read=8845
+                    ->  Parallel Seq Scan on ledger_entry le  (cost=0.00..41445.33 rows=1342933 width=23) (actual time=0.028..157.501 rows=1074346 loops=3)
+                          Buffers: shared hit=19171 read=8845
+                    ->  Hash  (cost=97.50..97.50 rows=769 width=32) (actual time=3.594..3.595 rows=769 loops=3)
+                          Buckets: 1024  Batches: 1  Memory Usage: 61kB
+                          Buffers: shared hit=180
+                          ->  Seq Scan on dispute d  (cost=0.00..97.50 rows=769 width=32) (actual time=0.092..0.623 rows=769 loops=3)
+                                Filter: ((status)::text = 'OPEN'::text)
+                                Rows Removed by Filter: 2231
+                                Buffers: shared hit=180
+              ->  Index Scan using pos_transaction_pkey on pos_transaction t  (cost=0.43..0.49 rows=1 width=30) (actual time=0.005..0.005 rows=1 loops=2307)
+                    Index Cond: (txn_id = le.txn_id)
+                    Buffers: shared hit=9230
+Planning:
+  Buffers: shared hit=16
+Planning Time: 0.308 ms
+Execution Time: 391.187 ms

@@ -1,0 +1,32 @@
+-- Q6: Dispute investigation: open disputes with their ledger postings
+-- phase: after
+
+SELECT d.dispute_id, d.reason, t.txn_ref, t.amount, le.wallet_id, le.direction, le.amount AS posted
+FROM dispute d
+JOIN pos_transaction t ON t.txn_id = d.txn_id
+JOIN ledger_entry le   ON le.txn_id = t.txn_id
+WHERE d.status = 'OPEN'
+ORDER BY d.opened_at;
+
+Sort  (cost=6990.61..6995.73 rows=2047 width=61) (actual time=12.499..12.703 rows=2307 loops=1)
+  Sort Key: d.opened_at
+  Sort Method: quicksort  Memory: 307kB
+  Buffers: shared hit=6221
+  ->  Nested Loop  (cost=0.86..6878.03 rows=2047 width=61) (actual time=0.046..10.994 rows=2307 loops=1)
+        Buffers: shared hit=6221
+        ->  Nested Loop  (cost=0.43..6395.71 rows=769 width=62) (actual time=0.040..4.167 rows=769 loops=1)
+              Buffers: shared hit=3136
+              ->  Seq Scan on dispute d  (cost=0.00..97.50 rows=769 width=32) (actual time=0.031..0.478 rows=769 loops=1)
+                    Filter: ((status)::text = 'OPEN'::text)
+                    Rows Removed by Filter: 2231
+                    Buffers: shared hit=60
+              ->  Index Scan using pos_transaction_pkey on pos_transaction t  (cost=0.43..8.19 rows=1 width=30) (actual time=0.004..0.004 rows=1 loops=769)
+                    Index Cond: (txn_id = d.txn_id)
+                    Buffers: shared hit=3076
+        ->  Index Scan using idx_ledger_txn on ledger_entry le  (cost=0.43..0.60 rows=3 width=23) (actual time=0.007..0.008 rows=3 loops=769)
+              Index Cond: (txn_id = t.txn_id)
+              Buffers: shared hit=3085
+Planning:
+  Buffers: shared hit=34
+Planning Time: 0.377 ms
+Execution Time: 13.094 ms

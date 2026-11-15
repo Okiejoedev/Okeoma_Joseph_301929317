@@ -1,0 +1,47 @@
+
+======================================================================
+Z1. Start config server, two shard replica sets and the mongos router
+======================================================================
+shards: ['shMainland @ shMainland/127.0.0.1:27031', 'shIsland @ shIsland/127.0.0.1:27032']
+
+======================================================================
+Z2. Zones: Lagos Island LGAs -> shIsland, the rest -> shMainland
+======================================================================
+  MAINLAND  [MinKey, EPE)
+  ISLAND    [EPE, IFA)
+  MAINLAND  [IFA, LIS)
+  ISLAND    [LIS, LMA)
+  MAINLAND  [LMA, MaxKey)
+
+======================================================================
+Z3. Shard the collection on {agent.lga: 1, _id: 1} and load 204,046 October receipts
+======================================================================
+  inserted 204046 documents through mongos in 7.6s
+
+======================================================================
+Z4. Where did the data go? (counted directly on each shard)
+======================================================================
+  shMainland   174409 docs | LGAs: AGE, AJE, ALI, AMU, APA, BAD, IFA, IKD, IKJ, KOS, LMA, MUS, OJO, OSH, SHO, SUR
+  shIsland      29637 docs | LGAs: EPE, ETI, IBL, LIS
+  chunks per shard: {'shIsland': 2, 'shMainland': 3}
+
+======================================================================
+Z5. Query routing: TARGETED vs SCATTER-GATHER (explain through mongos)
+======================================================================
+  Failed txns in Eti-Osa (filter includes shard-key prefix):
+     stage=SINGLE_SHARD  shards=['shIsland']  nReturned=483  time=47ms
+  One receipt with full shard key (IKJ + R261001000634479):
+     stage=SINGLE_SHARD  shards=['shMainland']  nReturned=1  time=1ms
+  Customer 1234's receipts (no shard key -> must ask every shard):
+     stage=SHARD_MERGE  shards=['shIsland', 'shMainland']  nReturned=6  time=184ms
+
+======================================================================
+Z6. Cluster-wide aggregation is split across shards and merged by mongos
+======================================================================
+  mergeType: router | shards involved: ['shMainland', 'shIsland']
+  split pipeline -> shardsPart: ['$match', '$group'] mergerPart: ['$mergeCursors', '$group']
+
+======================================================================
+Shutdown
+======================================================================
+  cluster stopped
